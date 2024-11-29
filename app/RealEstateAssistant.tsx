@@ -3,96 +3,27 @@ import React, { useEffect, useRef, useState } from "react";
 import { Button, message } from "antd";
 import "./realestate.scss";
 import axios from "axios";
-import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
 
-let azureKey: any = process.env.NEXT_PUBLIC_AZURE_KEY;
-let azureRegion: any = process.env.NEXT_PUBLIC_AZURE_REGION;
-let azureEndpoint = process.env.NEXT_PUBLIC_AZURE_ENDPOINT;
-let azureAvatarName: any = process.env.NEXT_PUBLIC_AVATAR_NAME;
-let avatarStyle: any = process.env.NEXT_PUBLIC_AVATAR_STYLE;
-let avatarVoice: any = process.env.NEXT_PUBLIC_AVATAR_VOICE;
-let avatarBg: any = process.env.NEXT_PUBLIC_AVATAR_BG;
+import StreamingAvatar, {
+  AvatarQuality,
+  StreamingEvents,
+  TaskMode,
+  TaskType,
+  VoiceEmotion
+} from '@heygen/streaming-avatar';
 
-const createWebRTCConnection = (
-  iceServerUrl: any,
-  iceServerUsername: any,
-  iceServerCredential: any
-): any => {
-  var peerConnection = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: [iceServerUrl],
-        username: iceServerUsername,
-        credential: iceServerCredential,
-      },
-    ],
-  });
-
-  return peerConnection;
-};
-
-const createAvatarSynthesizer = () => {
-  // Configuring Speech SDK for Speech Synthesis
-  // Speech configuration
-  const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
-    azureKey,
-    azureRegion
-  );
-
-  speechConfig.speechSynthesisVoiceName = avatarVoice;
-
-  // Configuring Avatar Video Format
-  const videoFormat = new SpeechSDK.AvatarVideoFormat();
-  let videoCropTopLeftX = 0;
-  let videoCropBottomRightX = 1920;
-  videoFormat.setCropRange(
-    new SpeechSDK.Coordinate(videoCropTopLeftX, 0),
-    new SpeechSDK.Coordinate(videoCropBottomRightX, 1080)
-  );
-
-  // Avatar Configuration
-  const talkingAvatarCharacter: any = azureAvatarName;
-  const talkingAvatarStyle: any = avatarStyle;
-  const avatarConfig = new SpeechSDK.AvatarConfig(
-    talkingAvatarCharacter,
-    talkingAvatarStyle,
-    videoFormat
-  );
-  avatarConfig.backgroundImage = avatarBg;
-
-  // Creating Avatar Synthesizer
-  let avatarSynthesizer = new SpeechSDK.AvatarSynthesizer(
-    speechConfig,
-    avatarConfig
-  );
-
-  // Handling Avatar Events
-  avatarSynthesizer.avatarEventReceived = function (s, e) {
-    var offsetMessage =
-      ", offset from session start: " + e.offset / 10000 + "ms.";
-    if (e.offset === 0) {
-      offsetMessage = "";
-    }
-    console.log(
-      "[" +
-        new Date().toISOString() +
-        "] Event received: " +
-        e.description +
-        offsetMessage
-    );
-  };
-
-  return avatarSynthesizer;
-};
 
 function RealEstateAssistant() {
   const chatWindowRef: any = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [avatarLoading, setAvatarLoading] = useState(false);
   const [messages, setMessages] = useState<any>([]);
   const [threadId, setThreadId] = useState();
   const [inputDisabled, setInputDisabled] = useState(false);
-  const [avatarSynthesizer, setAvatarSynthesizer] = useState<any>(null);
-  const [connected, setConnected] = useState(false);
+
+  const [data, setData] = useState<any>(null);
+  const [stream, setStream] = useState<any>(null);
+  const [debug, setDebug] = useState<string>();
 
   // Create a ref for the connect button
   const connectButtonRef = useRef<HTMLButtonElement>(null);
@@ -100,14 +31,10 @@ function RealEstateAssistant() {
   /// storing the input value
   const [userQuery, setUserQuery] = useState("");
 
-  const myAvatarVideoRef = useRef<HTMLDivElement>(null);
-  const myAvatarVideoEleRef = useRef<any>(null);
-  const myAvatarAudioEleRef = useRef<HTMLAudioElement>(null);
+  const mediaStream = useRef<HTMLVideoElement>(null);
+  const avatar = useRef<any>(null);
 
-  let iceUrl: any = "turn:relay.communication.microsoft.com:3478";
-  let iceCredential: any = "tFOrY+BH+zzA98wVaJGAuD5ojDo=";
-  let iceUsername: any =
-    "BQAANucL2QAB20IoJ3hkQntsw22xCw40OOVHt0b6bacAAAAQAxC6Y2laD2dOgrYx1Zk1SkZ9TZO0/Wa+GyHWN7kf9WA/y5CUeWo=";
+
 
   /// chat base response
   const [response, setResponse] = useState("");
@@ -187,238 +114,152 @@ function RealEstateAssistant() {
     }
   };
 
-  useEffect(() => {
-    createThread();
-    // startSession();
-  }, []);
-
+  
   console.log("messages", messages);
 
-  // const makeBackgroundTransparent = (timestamp: number) => {
-  //   console.log(
-  //     "coming inside this",
-  //     timestamp,
-  //     previousAnimationFrameTimestamp
-  //   );
 
-  //   if (timestamp - previousAnimationFrameTimestamp > 30) {
-  //     const video: any = document.getElementById("video");
-  //     const tmpCanvas = tmpCanvasRef.current;
-  //     const canvas = canvasRef.current;
+  const speakSelectedText = async (ans: string) => {
+    console.log('speakSelectedText', ans);
 
-  //     if (video && tmpCanvas && canvas) {
-  //       const tmpContext = tmpCanvas.getContext("2d", {
-  //         willReadFrequently: true,
-  //       });
-  //       const canvasContext = canvas.getContext("2d");
-
-  //       if (tmpContext && canvasContext) {
-  //         tmpContext.drawImage(
-  //           video,
-  //           0,
-  //           0,
-  //           video.videoWidth,
-  //           video.videoHeight
-  //         );
-
-  //         if (video.videoWidth > 0) {
-  //           const frame = tmpContext.getImageData(
-  //             0,
-  //             0,
-  //             video.videoWidth,
-  //             video.videoHeight
-  //           );
-
-  //           for (let i = 0; i < frame.data.length / 4; i++) {
-  //             const r = frame.data[i * 4];
-  //             const g = frame.data[i * 4 + 1];
-  //             const b = frame.data[i * 4 + 2];
-
-  //             if (g - 150 > r + b) {
-  //               // Set alpha to 0 for green-screen-like areas
-  //               frame.data[i * 4 + 3] = 0;
-  //             } else if (g + g > r + b) {
-  //               const adjustment = (g - (r + b) / 2) / 3;
-  //               frame.data[i * 4] += adjustment; // Adjust red
-  //               frame.data[i * 4 + 1] -= adjustment * 2; // Adjust green
-  //               frame.data[i * 4 + 2] += adjustment; // Adjust blue
-  //               frame.data[i * 4 + 3] = Math.max(0, 255 - adjustment * 4); // Smooth alpha
-  //             }
-  //           }
-
-  //           canvasContext.putImageData(frame, 0, 0);
-  //         }
-  //       }
-  //     }
-
-  //     previousAnimationFrameTimestamp = timestamp;
-  //   }
-
-  //   window.requestAnimationFrame(makeBackgroundTransparent);
-  // };
-
-  const handleOnTrack = (event: any) => {
-    console.log("#### Printing handle onTrack ", event);
-
-    // Update UI elements
-    console.log("Printing event.track.kind ", event.track.kind);
-    if (event.track.kind === "video") {
-      const mediaPlayer: any = myAvatarVideoEleRef.current;
-      mediaPlayer.id = event.track.kind;
-      mediaPlayer.srcObject = event.streams[0];
-      mediaPlayer.autoplay = true;
-      mediaPlayer.playsInline = true;
-      // myAvatarVideoEleRef.current = mediaPlayer;
-      mediaPlayer.addEventListener("play", () => {
-        window.requestAnimationFrame(() => {});
-      });
-    } else {
-      // Mute the audio player to make sure it can auto play, will unmute it when speaking
-      // Refer to https://developer.mozilla.org/en-US/docs/Web/Media/Autoplay_guide
-      //const mediaPlayer = myAvatarVideoEleRef.current;
-      // mediaPlayer.muted = true;
-
-      const audioPlayer: any = myAvatarAudioEleRef.current;
-      audioPlayer.srcObject = event.streams[0];
-      audioPlayer.autoplay = true;
-      audioPlayer.playsInline = true;
-      audioPlayer.muted = true;
-    }
+     // speak({ text: text, task_type: TaskType.REPEAT })
+     await avatar.current.speak({ text: ans, taskType: TaskType.REPEAT, taskMode: TaskMode.SYNC,  }).catch((e:any) => {
+      setDebug(e.message);
+    });
   };
 
-  const speakSelectedText = (ans: string) => {
-    //Start speaking the text
-    const audioPlayer: any = myAvatarAudioEleRef.current;
-    console.log("Audio muted status ", audioPlayer.muted);
-    audioPlayer.muted = false;
-    console.log("Audio muted status ", audioPlayer.muted);
-    avatarSynthesizer
-      .speakTextAsync(ans)
-      .then((result: any) => {
-        if (
-          result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted
-        ) {
-          console.log("Speech and avatar synthesized to video stream.");
-        } else {
-          console.log("Unable to speak. Result ID: " + result.resultId);
-          if (result.reason === SpeechSDK.ResultReason.Canceled) {
-            let cancellationDetails =
-              SpeechSDK.CancellationDetails.fromResult(result);
-            console.log(cancellationDetails.reason);
-            if (
-              cancellationDetails.reason === SpeechSDK.CancellationReason.Error
-            ) {
-              console.log(cancellationDetails.errorDetails);
-            }
-          }
-        }
-      })
-      .catch((error: any) => {
-        console.log(error);
-        avatarSynthesizer.close();
-      });
-  };
-
-  const startSession = () => {
-    let peerConnection = createWebRTCConnection(
-      iceUrl,
-      iceUsername,
-      iceCredential
-    );
-    console.log("Peer connection ", peerConnection);
-    peerConnection.ontrack = handleOnTrack;
-    peerConnection.addTransceiver("video", { direction: "sendrecv" });
-    peerConnection.addTransceiver("audio", { direction: "sendrecv" });
-
-    let avatarSynthesizer: any = createAvatarSynthesizer();
-    setAvatarSynthesizer(avatarSynthesizer);
-    peerConnection.oniceconnectionstatechange = () => {
-      console.log("WebRTC status: " + peerConnection.iceConnectionState);
-
-      if (peerConnection.iceConnectionState === "connected") {
-        console.log("Connected to Azure Avatar service");
-      }
-
-      if (
-        peerConnection.iceConnectionState === "disconnected" ||
-        peerConnection.iceConnectionState === "failed"
-      ) {
-        console.log("Azure Avatar service Disconnected");
-      }
-    };
-
-    avatarSynthesizer
-      .startAvatarAsync(peerConnection)
-      .then(() => {
-        console.log("[" + new Date().toISOString() + "] Avatar started.");
-        setConnected(true);
-      })
-      .catch((error: any) => {
-        console.log(
-          "[" +
-            new Date().toISOString() +
-            "] Avatar failed to start. Error: " +
-            error
-        );
-      });
-  };
-
-  const stopSession = () => {
-    console.log("coming in stop session");
-
+  async function fetchAccessToken() {
     try {
-      //Stop speaking
-      avatarSynthesizer
-        .stopSpeakingAsync()
-        .then(() => {
-          console.log(
-            "[" + new Date().toISOString() + "] Stop speaking request sent."
-          );
-          // Close the synthesizer
-          avatarSynthesizer.close();
-        })
-        .catch();
-    } catch (e) {}
-  };
+      const response = await fetch('/api/heygen/get-access-token', {
+        method: 'POST'
+      });
+      const token = await response.text();
+
+      console.log('Access Token:', token);
+
+      return token;
+    } catch (error) {
+      console.error('Error fetching access token:', error);
+    }
+
+    return '';
+  }
+
+  async function startSession() {
+    console.log('starting session');
+    
+    setAvatarLoading(true);
+    const newToken = await fetchAccessToken();
+
+    avatar.current = new StreamingAvatar({
+      token: newToken
+    });
+    avatar.current.on(StreamingEvents.AVATAR_START_TALKING, (e:any) => {
+      console.log('Avatar started talking', e);
+    });
+    avatar.current.on(StreamingEvents.AVATAR_STOP_TALKING, (e:any) => {
+      console.log('Avatar stopped talking', e);
+    });
+    avatar.current.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+      console.log('Stream disconnected');
+      endSession();
+    });
+    avatar.current?.on(StreamingEvents.STREAM_READY, (event:any) => {
+      console.log('>>>>> Stream ready:', event.detail);
+      setStream(event.detail);
+    });
+    avatar.current.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (message:string) => {
+      console.log('Avatar talking message:', message);
+      // You can display the message in the UI
+    });
+    avatar.current.on(StreamingEvents.AVATAR_END_MESSAGE, (message:string) => {
+      console.log('Avatar end message:', message);
+      // Handle the end of the avatar's message, e.g., indicate the end of the conversation
+    });
+    avatar.current.on(StreamingEvents.USER_SILENCE, () => {
+      console.log('User is silent');
+    });
+    try {
+      const res = await avatar.current.createStartAvatar({
+        quality: AvatarQuality.Medium,
+        avatarName: 'Wayne_20240711',
+        knowledgeId: '', // Or use a custom `knowledgeBase`.
+        voice: {
+          rate: 1.5, // 0.5 ~ 1.5
+          emotion: VoiceEmotion.FRIENDLY
+        },
+        
+        language: '',
+        disableIdleTimeout: true
+        
+      });
+
+      setData(res);
+      await avatar.current?.startVoiceChat({
+        useSilencePrompt: false
+      });
+    } catch (error) {
+      console.error('Error starting avatar session:', error);
+    } finally {
+      setAvatarLoading(false);
+    }
+  }
+
+  async function endSession() {
+    await avatar.current?.stopAvatar();
+    setStream(undefined);
+  }
+
 
   useEffect(() => {
-    const initSession = async () => {
-      try {
-        // Request user permissions for camera and microphone
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-        startSession();
-      } catch (error) {
-        console.error("Failed to get media permissions:", error);
-      }
-    };
-
-    initSession();
+    createThread();
+    startSession();
   }, []);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
-      stopSession();
+      endSession();
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      stopSession();
+      endSession();
     };
   }, []);
+
+  useEffect(() => {
+    if (stream && mediaStream.current) {
+      mediaStream.current.srcObject = stream;
+      // mediaStream.current.onloadedmetadata = () => {
+      //   mediaStream.current!.play();
+      //   setDebug('Playing');
+      // };
+    }
+  }, [mediaStream, stream]);
+
+
 
   return (
     <>
       <div className="parent-container">
-        <div id="myAvatarVideo" className="myVideoDiv" ref={myAvatarVideoRef}>
-          <video
-            className="myAvatarVideoElement"
-            ref={myAvatarVideoEleRef}
-          ></video>
+        {/* <div id="myAvatarVideo" className="myVideoDiv" ref={myAvatarVideoRef}> */}
+        {avatarLoading && <div>Loading...</div>}
+              <video
+                ref={mediaStream}
+                autoPlay
+                playsInline
+                style={{
+                  width: '50%',
+                  height: '100%',
+                  objectFit: 'cover'
+                }}
+              >
+                <track kind='captions' />
+              </video>
 
-          <audio ref={myAvatarAudioEleRef}></audio>
-        </div>
+          {/* <audio ref={myAvatarAudioEleRef}></audio> */}
+        {/* </div> */}
         <div className="chat-wrapper">
           <div className={`messages-section`}>
             <div className={`conversation-container`} ref={chatWindowRef}>
@@ -442,7 +283,7 @@ function RealEstateAssistant() {
                   );
                 else
                   return (
-                    <div className="user-message-container">
+                    <div className="user-message-container" key={index}>
                       <div className="user-message" key={index}>
                         {message.text}
                       </div>
